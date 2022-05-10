@@ -8,6 +8,7 @@ import random
 from notify.tgpush import post_tg
 from notify.Dingpush import dingpush
 from utils import verify
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 #签到程序模块
 class LoginError(Exception):
@@ -50,7 +51,7 @@ class ZJULogin(object):
         'user-agent': 'Mozilla/5.0 (Linux; U; Android 11; zh-CN; M2012K11AC Build/RKQ1.200826.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 UWS/3.22.0.36 Mobile Safari/537.36 AliApp(DingTalk/6.0.7.1) com.alibaba.android.rimet.zju/14785964 Channel/1543545060864 language/zh-CN 2ndType/exclusive UT4Aplus/0.2.25 colorScheme/light',
     }
 
-    def __init__(self, username, password, delay_run=False):
+    def __init__(self, username, password, push_key, email='', delay_run=False, lng=120.12278, lat=30.264174):
         self.username = username
         self.password = password
         self.delay_run = delay_run
@@ -59,14 +60,11 @@ class ZJULogin(object):
         self.BASE_URL = "https://healthreport.zju.edu.cn/ncov/wap/default/index"
         self.LOGIN_URL = "https://zjuam.zju.edu.cn/cas/login?service=http%3A%2F%2Fservice.zju.edu.cn%2F"
         
-        self.TG_TOKEN = os.getenv("TG_TOKEN")	#TG机器人的TOKEN
-        self.CHAT_ID = os.getenv("CHAT_ID")	    #推送消息的CHAT_ID
-        self.DD_BOT_TOKEN = os.getenv("DD_BOT_TOKEN")
-        self.DD_BOT_SECRET=os.getenv("DD_BOT_SECRET") #哈希算法验证(可选)
-        self.reminders = os.getenv("REMINDERS")
+        self.push_url = "https://push.akashic.cc/%s/"%(push_key)
+        self.email = email
 
-        self.lng= os.getenv("lng")
-        self.lat= os.getenv("lat")
+        self.lng = lng
+        self.lat = lat
 
     def login(self):
         """Login to ZJU platform"""
@@ -180,7 +178,8 @@ class HealthCheckInHelper(ZJULogin):
                     self.Push('验证码识别失败，请重试')
                     return
                 else:
-                    self.Push('验证码识别成功，请稍后')
+                    # self.Push('验证码识别成功，请稍后')
+                    pass
             except:
                 print('验证码识别失败')
         except:
@@ -307,7 +306,7 @@ class HealthCheckInHelper(ZJULogin):
                 'jhfjsftjhb':'0',
                 'szsqsfybl':'0',
                 'gwszgz':'',
-                'campus': '紫金港校区', # 紫金港校区 玉泉校区 西溪校区 华家池校区 之江校区 海宁校区 舟山校区 宁波校区 工程师学院 杭州国际科创中心 其他
+                'campus': '玉泉校区', # 紫金港校区 玉泉校区 西溪校区 华家池校区 之江校区 海宁校区 舟山校区 宁波校区 工程师学院 杭州国际科创中心 其他
                 # 👇-----2022.5.7日修改-----👇
                 'verifyCode': code,
                 # 👆-----2022.5.7日修改-----👆
@@ -319,15 +318,10 @@ class HealthCheckInHelper(ZJULogin):
 
     def Push(self,res):
         if res:
-            if self.CHAT_ID and self.TG_TOKEN :
-                post_tg('浙江大学每日健康打卡 V3.0 '+ f" \n\n 签到结果:{res}", self.CHAT_ID, self.TG_TOKEN) 
-            else:
-                print("telegram推送未配置,请自行查看签到结果")
-            if self.DD_BOT_TOKEN:
-                ding= dingpush('浙江大学每日健康打卡 V3.0 ', res,self.reminders,self.DD_BOT_TOKEN,self.DD_BOT_SECRET)
-                ding.SelectAndPush()
-            else:
-                print("钉钉推送未配置，请自行查看签到结果")
+            requests.post(self.push_url, params={'title': '健康打卡: ' + f"{res['m']}", 'description': '详细信息: ' + f"\n{res}"})
+            if self.email != '':
+                requests.post(self.push_url, params={'email': self.email, 'title': '健康打卡: '+ f"{res['m']}", 'description': '健康打卡: ' + f"{res['m']}"})
+
             print("推送完成！")
         
     def run(self):
@@ -351,11 +345,25 @@ class HealthCheckInHelper(ZJULogin):
             # reraise as KubeException, but log stacktrace.
             print("打卡失败,请检查github服务器网络状态")
             self.Push('打卡失败,请检查github服务器网络状态')
-                
-if __name__ == '__main__':
-    # 因为是github action版本，所以不加上循环多人打卡功能   
-    account = os.getenv("account")
-    password = os.getenv("password")
-    s = HealthCheckInHelper(account, password, delay_run=True)
+
+def hitcard_task(username, password, push_key, email, lng=120.12278, lat=30.264174):
+    s = HealthCheckInHelper(username, password, push_key, email, False, lng, lat)
     s.run() 
- 
+
+if __name__ == '__main__':
+    if os.path.exists('./config.json'):
+        configs = json.loads(open('./config.json', 'r').read())
+    
+    for user in configs:
+        hitcard_task(user["username"], user["password"], user["pushkey"], user["email"], user["lng"], user["lat"])
+    
+    scheduler = BlockingScheduler(job_defaults={'misfire_grace_time': 15 * 60})
+
+    for user in configs:
+        scheduler.add_job(hitcard_task, 'cron', args=[user["username"], user["password"], user["pushkey"], user["email"], user["lng"], user["lat"]], hour=user["schedule"]["hour"], minute=user["schedule"]["minute"])
+        print('已启动定时程序，每天 %02d:%02d 为您打卡' % (int(user["schedule"]["hour"]), int(user["schedule"]["minute"])))
+
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        pass
