@@ -19,7 +19,7 @@ class getcode():
         ocr = ddddocr.DdddOcr(show_ad=False,old=True)
         with open('./img/verify.png', 'rb') as f:
             image = f.read()
-        res = ocr.classification(image)
+        res = ocr.classification(image).lower()
         print('验证码识别结果：',res)
         return res
     
