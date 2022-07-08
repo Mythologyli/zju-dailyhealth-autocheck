@@ -308,7 +308,7 @@ class HealthCheckInHelper(ZJULogin):
                 # 👇-----2022.5.19日修改-----👇
                 'verifyCode': ''  ,
                 # 👆-----2022.5.19日修改-----👆
-                'internship': '1'
+                'internship': '3'
             }
             data.update(verify_code)
             response = self.sess.post('https://healthreport.zju.edu.cn/ncov/wap/default/save', data=data,
